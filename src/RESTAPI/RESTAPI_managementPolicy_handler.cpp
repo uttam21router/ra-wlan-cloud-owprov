@@ -10,6 +10,7 @@
 #include "Daemon.h"
 #include "Poco/JSON/Parser.h"
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "RESTAPI/RESTAPI_rbac_helpers.h"
 #include "RESTObjects/RESTAPI_ProvObjects.h"
 #include "StorageService.h"
 
@@ -20,6 +21,10 @@ namespace OpenWifi {
 		ProvObjects::ManagementPolicy Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "managementPolicy", "READ",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		std::string Arg;
@@ -57,6 +62,10 @@ namespace OpenWifi {
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
 		}
+		if (!RBAC::RequireAccess(*this, "managementPolicy", "DELETE",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
+		}
 
 		if (!Existing.inUse.empty()) {
 			return BadRequest(RESTAPI::Errors::StillInUse);
@@ -65,8 +74,10 @@ namespace OpenWifi {
 		StorageService()->PolicyDB().DeleteRecord("id", UUID);
 		ManageMembership(StorageService()->EntityDB(), &ProvObjects::Entity::managementPolicies,
 						 Existing.entity, "", Existing.info.id);
-		ManageMembership(StorageService()->VenueDB(), &ProvObjects::Venue::managementPolicies,
-						 Existing.venue, "", Existing.info.id);
+		if (!Existing.venue.empty()) {
+			ManageMembership(StorageService()->VenueDB(), &ProvObjects::Venue::managementPolicies,
+							 Existing.venue, "", Existing.info.id);
+		}
 		return OK();
 	}
 
@@ -90,8 +101,12 @@ namespace OpenWifi {
 			!StorageService()->EntityDB().Exists("id", NewObject.entity)) {
 			return BadRequest(RESTAPI::Errors::EntityMustExist);
 		}
+		if (!RBAC::RequireAccess(*this, "managementPolicy", "CREATE",
+								 RBAC::TargetScope{NewObject.entity, NewObject.venue})) {
+			return;
+		}
 
-		if (NewObject.venue.empty() || !StorageService()->VenueDB().Exists("id", NewObject.venue)) {
+		if (!NewObject.venue.empty() && !StorageService()->VenueDB().Exists("id", NewObject.venue)) {
 			return BadRequest(RESTAPI::Errors::VenueMustExist);
 		}
 
@@ -99,8 +114,10 @@ namespace OpenWifi {
 		if (DB_.CreateRecord(NewObject)) {
 			AddMembership(StorageService()->EntityDB(), &ProvObjects::Entity::managementPolicies,
 						  NewObject.entity, NewObject.info.id);
-			AddMembership(StorageService()->VenueDB(), &ProvObjects::Venue::managementPolicies,
-						  NewObject.venue, NewObject.info.id);
+			if (!NewObject.venue.empty()) {
+				AddMembership(StorageService()->VenueDB(), &ProvObjects::Venue::managementPolicies,
+							  NewObject.venue, NewObject.info.id);
+			}
 			PolicyDB::RecordName AddedObject;
 			DB_.GetRecord("id", NewObject.info.id, AddedObject);
 			Poco::JSON::Object Answer;
@@ -115,6 +132,10 @@ namespace OpenWifi {
 		ProvObjects::ManagementPolicy Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "managementPolicy", "MODIFY",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		ProvObjects::ManagementPolicy NewPolicy;
@@ -135,7 +156,7 @@ namespace OpenWifi {
 		std::string FromVenue, ToVenue;
 		if (!CreateMove(RawObject, "venue", &PolicyDB::RecordName::venue, Existing, FromVenue,
 						ToVenue, StorageService()->VenueDB()))
-			return BadRequest(RESTAPI::Errors::EntityMustExist);
+			return BadRequest(RESTAPI::Errors::VenueMustExist);
 
 		if (!NewPolicy.entries.empty())
 			Existing.entries = NewPolicy.entries;
@@ -143,8 +164,18 @@ namespace OpenWifi {
 		if (DB_.UpdateRecord("id", Existing.info.id, Existing)) {
 			ManageMembership(StorageService()->EntityDB(), &ProvObjects::Entity::managementPolicies,
 							 FromEntity, ToEntity, Existing.info.id);
-			ManageMembership(StorageService()->VenueDB(), &ProvObjects::Venue::managementPolicies,
-							 FromVenue, ToVenue, Existing.info.id);
+			if (FromVenue != ToVenue) {
+				if (!FromVenue.empty()) {
+					RemoveMembership(StorageService()->VenueDB(),
+									 &ProvObjects::Venue::managementPolicies, FromVenue,
+									 Existing.info.id);
+				}
+				if (!ToVenue.empty()) {
+					AddMembership(StorageService()->VenueDB(),
+								  &ProvObjects::Venue::managementPolicies, ToVenue,
+								  Existing.info.id);
+				}
+			}
 
 			ProvObjects::ManagementPolicy P;
 			DB_.GetRecord("id", Existing.info.id, P);

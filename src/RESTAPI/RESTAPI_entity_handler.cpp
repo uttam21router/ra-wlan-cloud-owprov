@@ -9,6 +9,7 @@
 #include "RESTAPI_entity_handler.h"
 
 #include "RESTAPI_db_helpers.h"
+#include "RESTAPI_rbac_helpers.h"
 #include "RESTObjects/RESTAPI_ProvObjects.h"
 #include "RESTObjects/RESTAPI_SecurityObjects.h"
 #include "StorageService.h"
@@ -23,6 +24,10 @@ namespace OpenWifi {
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
 		}
+		if (!RBAC::RequireAccess(*this, "entity", "READ",
+								 RBAC::TargetScope{Existing.info.id, ""})) {
+			return;
+		}
 
 		Poco::JSON::Object Answer;
 		Existing.to_json(Answer);
@@ -36,6 +41,10 @@ namespace OpenWifi {
 		ProvObjects::Entity Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "entity", "DELETE",
+								 RBAC::TargetScope{Existing.info.id, ""})) {
+			return;
 		}
 
 		if (UUID == EntityDB::RootUUID()) {
@@ -92,6 +101,10 @@ namespace OpenWifi {
 		} else if (NewEntity.parent.empty() || !DB_.Exists("id", NewEntity.parent)) {
 			return BadRequest(RESTAPI::Errors::ParentUUIDMustExist);
 		}
+		if (!RBAC::RequireAccess(*this, "entity", "CREATE",
+								 RBAC::TargetScope{NewEntity.parent, ""})) {
+			return;
+		}
 
 		if (!NewEntity.managementPolicy.empty() &&
 			!StorageService()->PolicyDB().Exists("id", NewEntity.managementPolicy)) {
@@ -136,6 +149,10 @@ namespace OpenWifi {
 		ProvObjects::Entity Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "entity", "MODIFY",
+								 RBAC::TargetScope{Existing.info.id, ""})) {
+			return;
 		}
 
 		const auto &RawObject = ParsedBody_;

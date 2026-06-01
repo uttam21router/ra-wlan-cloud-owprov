@@ -8,6 +8,7 @@
 
 #include "RESTAPI_inventory_list_handler.h"
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "RESTAPI/RESTAPI_rbac_helpers.h"
 #include "StorageService.h"
 
 namespace OpenWifi {
@@ -40,6 +41,18 @@ namespace OpenWifi {
 		}
 
 		bool SerialOnly = GetBoolParameter("serialOnly");
+		auto filterByScope = [&](ProvObjects::InventoryTagVec &tags) {
+			if (RBAC::IsRootUser(*this)) {
+				return;
+			}
+			ProvObjects::InventoryTagVec filtered;
+			for (const auto &t : tags) {
+				if (RBAC::IsScopeAllowed(*this, RBAC::TargetScope{t.entity, t.venue})) {
+					filtered.push_back(t);
+				}
+			}
+			tags = std::move(filtered);
+		};
 
 		std::string UUID;
 		std::string Arg, Arg2;
@@ -55,48 +68,65 @@ namespace OpenWifi {
 			return ReturnRecordList<decltype(DB_)>("taglist", DB_, *this);
 		} else if (HasParameter("entity", UUID)) {
 			if (QB_.CountOnly) {
-				auto C = DB_.Count(StorageService()->InventoryDB().OP("entity", ORM::EQ, UUID));
-				return ReturnCountOnly(C);
+				ProvObjects::InventoryTagVec Tags;
+				DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, DB_.OP("entity", ORM::EQ, UUID), OrderBy);
+				filterByScope(Tags);
+				return ReturnCountOnly(Tags.size());
 			}
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, DB_.OP("entity", ORM::EQ, UUID), OrderBy);
+			filterByScope(Tags);
 			return SendList(Tags, SerialOnly);
 		} else if (HasParameter("venue", UUID)) {
 			if (QB_.CountOnly) {
-				auto C = DB_.Count(DB_.OP("venue", ORM::EQ, UUID));
-				return ReturnCountOnly(C);
+				ProvObjects::InventoryTagVec Tags;
+				DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, DB_.OP("venue", ORM::EQ, UUID), OrderBy);
+				filterByScope(Tags);
+				return ReturnCountOnly(Tags.size());
 			}
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, DB_.OP("venue", ORM::EQ, UUID), OrderBy);
+			filterByScope(Tags);
 			return SendList(Tags, SerialOnly);
 		} else if (GetBoolParameter("subscribersOnly") && GetBoolParameter("unassigned")) {
 			if (QB_.CountOnly) {
-				auto C = DB_.Count(" devClass='subscriber' and subscriber='' ");
-				return ReturnCountOnly(C);
+				ProvObjects::InventoryTagVec Tags;
+				DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, " devClass='subscriber' and subscriber='' ",
+							   OrderBy);
+				filterByScope(Tags);
+				return ReturnCountOnly(Tags.size());
 			}
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, " devClass='subscriber' and subscriber='' ",
 						   OrderBy);
+			filterByScope(Tags);
 			if (QB_.CountOnly) {
-				auto C = DB_.Count(DB_.OP("venue", ORM::EQ, UUID));
-				return ReturnCountOnly(C);
+				return ReturnCountOnly(Tags.size());
 			}
 			return SendList(Tags, SerialOnly);
 		} else if (GetBoolParameter("subscribersOnly")) {
 			if (QB_.CountOnly) {
-				auto C = DB_.Count(" devClass='subscriber' and subscriber!='' ");
-				return ReturnCountOnly(C);
+				ProvObjects::InventoryTagVec Tags;
+				DB_.GetRecords(QB_.Offset, QB_.Limit, Tags,
+							   " devClass='subscriber' and subscriber!='' ", OrderBy);
+				filterByScope(Tags);
+				return ReturnCountOnly(Tags.size());
 			}
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags,
 						   " devClass='subscriber' and subscriber!='' ", OrderBy);
+			filterByScope(Tags);
 			return SendList(Tags, SerialOnly);
 		} else if (GetBoolParameter("unassigned")) {
 			if (QB_.CountOnly) {
+				ProvObjects::InventoryTagVec Tags;
 				std::string Empty;
-				auto C = DB_.Count(InventoryDB::OP(DB_.OP("venue", ORM::EQ, Empty), ORM::AND,
-												   DB_.OP("entity", ORM::EQ, Empty)));
-				return ReturnCountOnly(C);
+				DB_.GetRecords(QB_.Offset, QB_.Limit, Tags,
+							   InventoryDB::OP(DB_.OP("venue", ORM::EQ, Empty), ORM::AND,
+											   DB_.OP("entity", ORM::EQ, Empty)),
+							   OrderBy);
+				filterByScope(Tags);
+				return ReturnCountOnly(Tags.size());
 			}
 			ProvObjects::InventoryTagVec Tags;
 			std::string Empty;
@@ -104,11 +134,13 @@ namespace OpenWifi {
 						   InventoryDB::OP(DB_.OP("venue", ORM::EQ, Empty), ORM::AND,
 										   DB_.OP("entity", ORM::EQ, Empty)),
 						   OrderBy);
+			filterByScope(Tags);
 			return SendList(Tags, SerialOnly);
 		} else if (HasParameter("subscriber", Arg) && !Arg.empty()) {
 			// looking for device(s) for a specific subscriber...
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(0, 100, Tags, " subscriber='" + ORM::Escape(Arg) + "'");
+			filterByScope(Tags);
 			if (SerialOnly) {
 				std::vector<std::string> SerialNumbers;
 				std::transform(cbegin(Tags), cend(Tags), std::back_inserter(SerialNumbers),
@@ -118,19 +150,29 @@ namespace OpenWifi {
 				return MakeJSONObjectArray("taglist", Tags, *this);
 			}
 		} else if (QB_.CountOnly) {
-			auto C = DB_.Count();
-			return ReturnCountOnly(C);
+			ProvObjects::InventoryTagVec Tags;
+			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, "", OrderBy);
+			filterByScope(Tags);
+			return ReturnCountOnly(Tags.size());
 		} else if (GetBoolParameter("rrmOnly")) {
 			Types::UUIDvec_t DeviceList;
 			DB_.GetRRMDeviceList(DeviceList);
-			if (QB_.CountOnly)
-				return ReturnCountOnly(DeviceList.size());
-			else {
-				return ReturnObject("serialNumbers", DeviceList);
+			if (!RBAC::IsRootUser(*this)) {
+				Types::UUIDvec_t filteredSerials;
+				for (const auto &serial : DeviceList) {
+					ProvObjects::InventoryTag tag;
+					if (DB_.GetRecord("serialNumber", serial, tag) &&
+						RBAC::IsScopeAllowed(*this, RBAC::TargetScope{tag.entity, tag.venue})) {
+						filteredSerials.push_back(serial);
+					}
+				}
+				return ReturnObject("serialNumbers", filteredSerials);
 			}
+			return ReturnObject("serialNumbers", DeviceList);
 		} else {
 			ProvObjects::InventoryTagVec Tags;
 			DB_.GetRecords(QB_.Offset, QB_.Limit, Tags, "", OrderBy);
+            filterByScope(Tags);
             return SendList(Tags, SerialOnly);
 
 //			return MakeJSONObjectArray("taglist", Tags, *this);

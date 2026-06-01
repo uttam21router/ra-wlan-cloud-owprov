@@ -18,6 +18,7 @@
 #include "AutoDiscovery.h"
 #include "DeviceTypeCache.h"
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "RESTAPI/RESTAPI_rbac_helpers.h"
 #include "SerialNumberCache.h"
 #include "StorageService.h"
 #include "Tasks/VenueConfigUpdater.h"
@@ -35,6 +36,10 @@ namespace OpenWifi {
 		if (SerialNumber.empty() ||
 			!DB_.GetRecord(RESTAPI::Protocol::SERIALNUMBER, SerialNumber, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "inventory", "READ",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 		poco_debug(Logger(), fmt::format("{},{}: Retrieving inventory information.",
 										 Existing.serialNumber, Existing.info.id));
@@ -141,6 +146,10 @@ namespace OpenWifi {
 			!DB_.GetRecord(RESTAPI::Protocol::SERIALNUMBER, SerialNumber, Existing)) {
 			return NotFound();
 		}
+		if (!RBAC::RequireAccess(*this, "inventory", "DELETE",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
+		}
 
 		const auto subscriberAssociationExists =
 			!Existing.subscriber.empty() ||
@@ -242,6 +251,10 @@ namespace OpenWifi {
 			 !StorageService()->EntityDB().Exists("id", NewObject.entity))) {
 			return BadRequest(RESTAPI::Errors::ValidNonRootUUID);
 		}
+		if (!RBAC::RequireAccess(*this, "inventory", "CREATE",
+								 RBAC::TargetScope{NewObject.entity, NewObject.venue})) {
+			return;
+		}
 
 		if (!NewObject.venue.empty() &&
 			!StorageService()->VenueDB().Exists("id", NewObject.venue)) {
@@ -323,6 +336,10 @@ namespace OpenWifi {
 		if (SerialNumber.empty() ||
 			!DB_.GetRecord(RESTAPI::Protocol::SERIALNUMBER, SerialNumber, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "inventory", "MODIFY",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		std::string previous_venue = Existing.venue;

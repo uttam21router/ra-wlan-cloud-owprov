@@ -9,6 +9,7 @@
 #include "RESTAPI_venue_handler.h"
 
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "RESTAPI/RESTAPI_rbac_helpers.h"
 #include "RESTObjects/RESTAPI_ProvObjects.h"
 #include "StorageService.h"
 #include "Tasks/VenueConfigUpdater.h"
@@ -57,6 +58,10 @@ namespace OpenWifi {
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
 		}
+		if (!RBAC::RequireAccess(*this, "venue", "READ",
+								 RBAC::TargetScope{Existing.entity, Existing.info.id})) {
+			return;
+		}
 
 		if (GetBoolParameter("getDevices")) {
 			ProvObjects::VenueDeviceList VDL;
@@ -83,6 +88,10 @@ namespace OpenWifi {
 		ProvObjects::Venue Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "venue", "DELETE",
+								 RBAC::TargetScope{Existing.entity, Existing.info.id})) {
+			return;
 		}
 
 		if (!Existing.children.empty() || !Existing.devices.empty()) {
@@ -149,6 +158,16 @@ namespace OpenWifi {
 
 		if (!NewObject.parent.empty() && !DB_.Exists("id", NewObject.parent)) {
 			return BadRequest(RESTAPI::Errors::VenueMustExist);
+		}
+		if (!NewObject.parent.empty()) {
+			ProvObjects::Venue parentVenue;
+			if (DB_.GetRecord("id", NewObject.parent, parentVenue)) {
+				NewObject.entity = parentVenue.entity;
+			}
+		}
+		if (!RBAC::RequireAccess(*this, "venue", "CREATE",
+								 RBAC::TargetScope{NewObject.entity, NewObject.parent})) {
+			return;
 		}
 
 		if (NewObject.entity == EntityDB::RootUUID()) {
@@ -274,6 +293,10 @@ namespace OpenWifi {
 		ProvObjects::Venue Existing;
 		if (UUID.empty() || !DB_.GetRecord("id", UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "venue", "MODIFY",
+								 RBAC::TargetScope{Existing.entity, Existing.info.id})) {
+			return;
 		}
 
 		auto testUpdateOnly = GetBoolParameter("testUpdateOnly");

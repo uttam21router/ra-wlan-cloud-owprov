@@ -7,6 +7,7 @@
 #include "Poco/JSON/Parser.h"
 #include "Poco/StringTokenizer.h"
 #include "RESTAPI/RESTAPI_db_helpers.h"
+#include "RESTAPI/RESTAPI_rbac_helpers.h"
 #include "RESTObjects/RESTAPI_ProvObjects.h"
 #include "StorageService.h"
 
@@ -17,6 +18,10 @@ namespace OpenWifi {
 		std::string UUID = GetBinding(RESTAPI::Protocol::ID, "");
 		if (UUID.empty() || !DB_.GetRecord(RESTAPI::Protocol::ID, UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "managementRole", "READ",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		Poco::JSON::Object Answer;
@@ -51,6 +56,10 @@ namespace OpenWifi {
 		std::string UUID = GetBinding(RESTAPI::Protocol::ID, "");
 		if (UUID.empty() || !DB_.GetRecord(RESTAPI::Protocol::ID, UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "managementRole", "DELETE",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		bool Force = false;
@@ -92,6 +101,10 @@ namespace OpenWifi {
 			!StorageService()->EntityDB().Exists("id", NewObject.entity)) {
 			return BadRequest(RESTAPI::Errors::EntityMustExist);
 		}
+		if (!RBAC::RequireAccess(*this, "managementRole", "CREATE",
+								 RBAC::TargetScope{NewObject.entity, NewObject.venue})) {
+			return;
+		}
 
 		if (!NewObject.managementPolicy.empty() &&
 			!StorageService()->PolicyDB().Exists("id", NewObject.managementPolicy)) {
@@ -120,6 +133,10 @@ namespace OpenWifi {
 		std::string UUID = GetBinding(RESTAPI::Protocol::ID, "");
 		if (UUID.empty() || !DB_.GetRecord(RESTAPI::Protocol::ID, UUID, Existing)) {
 			return NotFound();
+		}
+		if (!RBAC::RequireAccess(*this, "managementRole", "MODIFY",
+								 RBAC::TargetScope{Existing.entity, Existing.venue})) {
+			return;
 		}
 
 		const auto &RawObject = ParsedBody_;
